@@ -63,13 +63,15 @@ Target: usable two-user production beta. New users provision their own collectio
 `/provision` (no claim token); the legacy owner still binds exclusively via `/claim` + token.
 
 **CRITICAL ORDERING (supervisor correction):** Vercel automatically deploys `main` the moment
-the beta branch merges. Therefore production environment variables (G-5), the verified Neon
-restore point (G-6), and the additive `002` migration (G-7) **MUST all complete BEFORE the
-merge** (G-4). Migrating before merging is safe because `002` is additive-only: the currently
+the beta branch merges. Therefore production environment variables (G-4), the verified Neon
+restore point (G-5), and the additive `002` migration (G-6) **MUST all complete BEFORE the
+merge** (G-7). Migrating before merging is safe because `002` is additive-only: the currently
 deployed old code ignores the new tables and the unused `users.better_auth_user_id` column, so
 the running application is preserved throughout the migration window. The import gate stays
 disabled (`IMPORT_E2E_VERIFIED` unset) until post-deploy verification passes (G-10), so no
-production import traffic can occur during the transition.
+production import traffic can occur during the transition. G-8 is the manual post-deploy
+verification run AFTER Vercel's automatic deployment — Vercel deploys by itself; G-8 is the
+human check that it deployed correctly.
 
 ### 6.1 Code state
 
