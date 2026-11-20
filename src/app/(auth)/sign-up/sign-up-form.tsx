@@ -23,9 +23,11 @@ export function SignUpForm() {
             setError(error.message ?? "Sign-up failed.");
             return;
           }
-          // New accounts start UNCLAIMED: card data stays untouched until the
-          // operator-issued claim token is redeemed at /claim.
-          window.location.href = "/claim";
+          // New accounts provision their own fresh collection identity at
+          // /provision (COB-812 production beta). Binding to a PRE-EXISTING
+          // legacy collection remains exclusive to /claim with an operator-
+          // issued token — signup never touches an existing users row.
+          window.location.href = "/provision";
         } catch {
           setError("Sign-up failed.");
         } finally {
