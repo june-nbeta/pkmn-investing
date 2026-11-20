@@ -57,10 +57,19 @@ Therefore: run the migration first, then deploy the code.
 3. **Restore the database:** if data was mutated, point `DATABASE_URL` back at the pre-migration
    Neon branch from §2.
 
-## 6. Production beta (two-user: owner + Jason) — added 2026-11-19
+## 6. Production beta (two-user: owner + Jason) — added 2026-11-19, re-sequenced 2026-11-19 20:19
 
 Target: usable two-user production beta. New users provision their own collection at
 `/provision` (no claim token); the legacy owner still binds exclusively via `/claim` + token.
+
+**CRITICAL ORDERING (supervisor correction):** Vercel automatically deploys `main` the moment
+the beta branch merges. Therefore production environment variables (G-5), the verified Neon
+restore point (G-6), and the additive `002` migration (G-7) **MUST all complete BEFORE the
+merge** (G-4). Migrating before merging is safe because `002` is additive-only: the currently
+deployed old code ignores the new tables and the unused `users.better_auth_user_id` column, so
+the running application is preserved throughout the migration window. The import gate stays
+disabled (`IMPORT_E2E_VERIFIED` unset) until post-deploy verification passes (G-10), so no
+production import traffic can occur during the transition.
 
 ### 6.1 Code state
 
@@ -74,16 +83,21 @@ Target: usable two-user production beta. New users provision their own collectio
   on existing users rows, AlreadyProvisionedError idempotence, claim-flow exclusivity).
 - **G-2 Disposable-branch E2E** on `pkmn-better-auth-it`: migrate 002 (if unapplied), production
   build + server, signup → session → provision → CSV import → isolation + fail-closed checks.
-- **G-3 Push** reviewed commits to the fork (updates PR #2) OR push the branch to the origin
-  repo (`idislikebrian/pkmn-investing`) — the origin-branch route bypasses Vercel fork
-  authorization entirely and is the recommended simpler path for the beta.
-- **G-4 Brian merges** PR #2 into `main` from his own GitHub account.
-- **G-5 Production env vars** (Vercel Production): `BETTER_AUTH_SECRET` (fresh 32+ byte),
-  `BETTER_AUTH_URL` (production origin), `DATABASE_URL` (production Neon), and — only after
-  G-6 — `IMPORT_E2E_VERIFIED=1`.
-- **G-6 Neon backup point**: create branch `pre-cob812-beta` from production before migrating.
-- **G-7 Migrate**: `npm run db:migrate` against production `DATABASE_URL` (additive-only 002).
-- **G-8 Deploy**: Vercel production deployment of merged `main`.
+- **G-3 Push** reviewed commits to the fork (updates PR #2) OR owner pushes the branch to the
+  origin repo (`idislikebrian/pkmn-investing`) — the origin-branch route bypasses Vercel fork
+  authorization entirely and is the recommended simpler path for the beta (owner-authorized
+  push procedure in §6.4; no agent credential expansion).
+- **G-4 Production env vars** (Vercel Production): `BETTER_AUTH_SECRET` (fresh 32+ byte),
+  `BETTER_AUTH_URL` (production origin), `DATABASE_URL` (production Neon). Do NOT set
+  `IMPORT_E2E_VERIFIED` yet — the import gate stays disabled until G-10.
+- **G-5 Neon backup point**: create branch `pre-cob812-beta` from production; record branch
+  name + timestamp (this is the verified restore point).
+- **G-6 Migrate**: `npm run db:migrate` against production `DATABASE_URL` (additive-only 002;
+  the currently deployed old application keeps running unchanged — additive migration, no
+  downtime window).
+- **G-7 Brian merges** PR #2 / the beta branch into `main` from his own GitHub account.
+  Vercel auto-deploys `main` — this is the production deploy (G-8 happens automatically).
+- **G-8 Post-deploy verification**: run §4 checks against the auto-deployed production.
 - **G-9 Owner claim**: owner signs in, redeems operator-issued claim token for the legacy row.
 - **G-10 Import gate open**: operator sets `IMPORT_E2E_VERIFIED=1` (production env) after
   post-deploy verification §4 passes.
@@ -96,3 +110,25 @@ then optionally run the 002 ROLLBACK section + delete the `schema_migrations` ro
 restore `DATABASE_URL` to the `pre-cob812-beta` branch point. Jason's provisioned row and
 any imported cards live only in rows created post-migration — reverting the column/tables
 orphan-nothing because the legacy owner data is untouched by 002 (additive-only).
+
+### 6.4 Owner-authorized push procedure (origin-branch route, no agent credential expansion)
+
+The agent's GitHub identity (june-nbeta) has push access to the fork (june-nbeta/pkmn-investing)
+only — verified working. It has no push access to the origin repo (idislikebrian/pkmn-investing)
+and must never gain it. The owner performs the origin push from their own machine:
+
+1. Owner fetches the reviewed branch from the fork and pushes it to the origin repo:
+   ```
+   git fetch https://github.com/june-nbeta/pkmn-investing.git dev/cob812-auto-provision
+   git push https://github.com/idislikebrian/pkmn-investing.git \
+     FETCH_HEAD:refs/heads/dev/cob812-auto-provision
+   ```
+   (Or, with origin/fork remotes already configured locally:
+   `git fetch fork dev/cob812-auto-provision && git push origin FETCH_HEAD:refs/heads/dev/cob812-auto-provision`.)
+2. Vercel builds the origin-repo branch preview automatically (no Git-App authorization step).
+3. Alternative for the owner: merge PR #2 after the agent pushes the reviewed commits to the
+   fork (agent-authorized path, already proven) — but the origin-branch preview route lets the
+   browser acceptance run before any merge touches `main`.
+
+The agent never handles or prints owner credentials; the push happens entirely under the
+owner's own authenticated GitHub session.
